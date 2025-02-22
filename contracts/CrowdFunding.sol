@@ -8,6 +8,12 @@ contract Crowdfunding {
     uint256 public deadline;
     address public owner;
 
+    enum CampaignState {
+        Active, Successful, Failed
+    }
+
+    CampaignState public state;
+
     struct Tier {
         string name;
         uint256 amount;
@@ -18,6 +24,11 @@ contract Crowdfunding {
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Not the owner");
+        _;
+    }
+
+    modifier campaignOpen(){
+        require(state == CampaignState.Active, "Campaign is not active");
         _;
     }
 
@@ -32,13 +43,26 @@ contract Crowdfunding {
         goal = _goal;
         deadline = block.timestamp + (_durationInDays * 1 days);
         owner = msg.sender;
+        state = CampaignState.Active;
     }
 
-    function fund(uint256 _tierIndex) public  payable{
+    function checkAndUpdateCampaignState() internal {
+        if (state == CampaignState.Active) {
+            if (block.timestamp >= deadline) {
+                state = address(this).balance >= goal ? CampaignState.Successful : CampaignState.Failed;
+            } else {
+                state = address(this).balance >= goal ? CampaignState.Successful : CampaignState.Active; 
+            }
+        }
+    }
+
+    function fund(uint256 _tierIndex) public  payable campaignOpen{
         require(block.timestamp < deadline, "Campaign has ended");
         require(_tierIndex < tiers.length, "Invalid tier");
         require(msg.value == tiers[_tierIndex].amount, "Incorrect amount");
         tiers[_tierIndex].backers++;
+
+        checkAndUpdateCampaignState();
     }
 
     function addTier(string memory _name, uint256 _amount) public onlyOwner{
@@ -53,6 +77,8 @@ contract Crowdfunding {
     }
 
     function withdraw() public onlyOwner{
+        checkAndUpdateCampaignState();
+        require(state == CampaignState.Successful, "Campaign not successfull");
         require(address(this).balance >= goal, "Goal had not been reached");
 
         uint256 balance = address(this).balance;
